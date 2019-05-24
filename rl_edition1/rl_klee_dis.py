@@ -7,6 +7,10 @@ import os
 ACTIONS = ['true', 'false']
 STATE_LIST = ['0']
 ACTION_STR = ''
+CANDIDATE_LIST = {''}
+STATE = '0'
+ACTION = ''
+NEXT_STATE = '0'
 
 
 class MyThread1(threading.Thread):
@@ -29,9 +33,8 @@ class MyThread2(threading.Thread):
 
     def run(self):
         os.system(
-            "/home/lab301/klee_origin/klee/cmake-build-debug/bin/klee -search=jie "
-            "/home/lab301/klee_origin/klee/examples/regexp/Regexp.bc")
-
+            "/home/lab301/klee/klee/cmake-build-debug/bin/klee -search=jie "
+            "/home/lab301/klee_benchmarks/systemc/bist_cell.cil.klee.bc")
 
 class QLearningTable:
     def __init__(self, actions, learning_rate=0.01, e_greedy=0.7, alpha=0.1):
@@ -41,45 +44,42 @@ class QLearningTable:
         self.alpha = alpha
         self.q_table = pd.DataFrame(np.zeros((1, len(ACTIONS))), columns=self.actions, dtype=np.float64, index=['0'])
 
-    def choose_action(self, state):
-        self.check_state_exist(state)
-        state_actions = self.q_table.loc[state, :]
+    def choose_action(self):
+        self.check_state_exist(STATE)
+        state_actions = self.q_table.loc[STATE, :]
         if np.random.uniform() < self.epsilon:
             action_name = np.random.choice(state_actions[state_actions == np.max(state_actions)].index)
         else:
             action_name = np.random.choice(self.actions)
         return action_name
 
-    def check_state_exist(self, state):
-        if state not in STATE_LIST:
-            # append new state to q table
+    def check_state_exist(self, STATE):
+        if STATE not in STATE_LIST:
+            # append new STATE to q table
             self.q_table = self.q_table.append(
                 pd.Series(
                     [0] * len(self.actions),
                     index=self.actions,
-                    name=state
+                    name=STATE
                 )
             )
-            STATE_LIST.append(state)
+            STATE_LIST.append(STATE)
 
-    def env_update(self, s, a):
-        if a == 'true':
-            s += '1'
+    def env_update(self):
+        global ACTION_STR, NEXT_STATE, STATE
+        if ACTION == 'true':
+            ACTION_STR += '1'
+            NEXT_STATE += '1'
         else:
-            s += '2'
-        return s
+            ACTION_STR += '2'
+            NEXT_STATE += '2'
 
-    def learn(self, s, a, r):
-        # self.check_state_exist(s)
-        if a is 'true':
-            s_ = s + '1'
-        else:
-            s_ = s + '2'
-        self.check_state_exist(s_)
-        q_predict = self.q_table.loc[s, a]
-        q_target = r + self.q_table.loc[s_, :].max()
+    def learn(self, r):
+        global STATE, ACTION, NEXT_STATE
+        q_predict = self.q_table.loc[STATE, ACTION]
+        q_target = r + self.q_table.loc[NEXT_STATE, :].max()
 
-        self.q_table.loc[s, a] += self.alpha * (q_target - q_predict)
+        self.q_table.loc[STATE, ACTION] += self.alpha * (q_target - q_predict)
 
 
 def init_socket(Socket_TCP):
@@ -109,59 +109,69 @@ def by_klee():
     return message
 
 
-def check_if_in_qtable(ACTION_STR):
+def check_if_valid():
+    global ACTION_STR, STATE_LIST, CANDIDATE_LIST
     str = '0' + ACTION_STR
     if str in STATE_LIST:
         return True
-    return False
+    else:
+        if str[1:] in CANDIDATE_LIST:
+            return False
+        else:
+            init()
+            return True
+
+
+def if_in_qtable():
+    global ACTION_STR, STATE_LIST
+    str = '0' + ACTION_STR
+    if str in STATE_LIST:
+        return True
+    else:
+        return False
+
+
+def init():
+    global ACTION_STR, STATE, NEXT_STATE
+    ACTION_STR = ""
+    STATE = '0'
+    NEXT_STATE = '0'
 
 
 if __name__ == "__main__":
     RL = QLearningTable(ACTIONS)
-    state = '0'
-    first_connect = True
     if_arrive = False
-    round = 0
     dis_old = 0
     dis_new = 0
+    thread2 = MyThread2()
+    Socket_TCP = socket()
+    init_socket(Socket_TCP)
     while if_arrive is False:
-        thread2 = MyThread2()
-        if first_connect:
-            state = '0'
-            Socket_TCP = socket()
-            init_socket(Socket_TCP)
 
         data = by_klee()
         if data == 'link':
-            if first_connect is False:
-                state = next_state
-            action = RL.choose_action(state)
-            if action == 'true':
-                ACTION_STR += '1'
-            else:
-                ACTION_STR += '2'
-            # util the q_table don't exist the state,we convey it to klee
-            while check_if_in_qtable(ACTION_STR):
-                state = RL.env_update(state, action)
-                action = RL.choose_action(state)
-                if action == 'true':
-                    ACTION_STR += '1'
-                else:
-                    ACTION_STR += '2'
-            next_state = RL.env_update(state, action)
-            conn.send(bytes(ACTION_STR, encoding='utf-8'))
-            first_connect = False
 
-        elif data == 'fail' or data == "reach":
+            ACTION = RL.choose_action()
+            RL.env_update()
+            while if_in_qtable():
+                ACTION = RL.choose_action()
+                RL.env_update()
+            conn.send(bytes(ACTION_STR, encoding='utf-8'))
+
+        elif data == 'fail':
+            init()
+            ACTION = RL.choose_action()
+            RL.env_update()
+            while check_if_valid():
+                ACTION = RL.choose_action()
+                RL.env_update()
+            conn.send(bytes(ACTION_STR, encoding='utf-8'))
+
+        elif data == "reach":
             print(RL.q_table)
-            round += 1
             conn.close()
             Socket_TCP.close()
-            if data == "fail":
-                first_connect = True
-                ACTION_STR = ""
-            else:
-                if_arrive = True
+            if_arrive = True
         else:
             dis = int(data)
             if dis_old is 0:
@@ -169,7 +179,10 @@ if __name__ == "__main__":
             elif dis is 0:
                 r = 0
             else:
-                r = 1 / dis_new - 1 / dis_old
-            RL.learn(state, action, r)
-
-    print("klee runs %s round" % round)
+                r = dis_old-dis_new
+            RL.check_state_exist(NEXT_STATE)
+            CANDIDATE_LIST.add(ACTION_STR[:-1] + '1')
+            CANDIDATE_LIST.add(ACTION_STR[:-1] + '2')
+            RL.learn(r)
+            STATE = NEXT_STATE
+            # print(RL.q_table)
