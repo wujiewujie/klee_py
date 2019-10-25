@@ -33,8 +33,8 @@ class MyThread2(threading.Thread):
 
     def run(self):
         os.system(
-            "/home/lab301/klee/build_dom/bin/klee -search=jie "
-            "/home/lab301/benchmarks/c/bitvector/byte_add-1.bc")
+            "/home/lab301/klee/klee/cmake-build-debug/bin/klee -search=jie "
+            "/home/lab301/klee/klee/examples/regexp/Regexp.bc")
 
 
 class QLearningTable:
@@ -91,12 +91,12 @@ def init_socket(Socket_TCP):
     Socket_TCP.bind(addr)
     Socket_TCP.listen(10)
     print("wait...")
-    thread1 = MyThread1(Socket_TCP)
-    thread1.start()
-    thread2.start()
-    thread1.join()
-    conn, addr = thread1.get_result()
-    # conn, addr = Socket_TCP.accept()
+    # thread1 = MyThread1(Socket_TCP)
+    # thread1.start()
+    # thread2.start()
+    # thread1.join()
+    # conn, addr = thread1.get_result()
+    conn, addr = Socket_TCP.accept()
     print("connect success")
 
 
@@ -146,7 +146,7 @@ if __name__ == "__main__":
     if_arrive = False
     dis_old = 0
     dis_new = 0
-    thread2 = MyThread2()
+    # thread2 = MyThread2()
     Socket_TCP = socket()
     init_socket(Socket_TCP)
     while if_arrive is False:
@@ -161,20 +161,6 @@ if __name__ == "__main__":
                 RL.env_update()
             conn.send(bytes(ACTION_STR, encoding='utf-8'))
 
-        elif data == 'fail':
-            init()
-            ACTION = RL.choose_action()
-            RL.env_update()
-            while check_if_valid():
-                ACTION = RL.choose_action()
-                RL.env_update()
-            conn.send(bytes(ACTION_STR, encoding='utf-8'))
-
-        elif data == "reach":
-            print(RL.q_table)
-            conn.close()
-            Socket_TCP.close()
-            if_arrive = True
         else:
             dis = int(data)
             if dis_old is 0:
