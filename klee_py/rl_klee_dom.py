@@ -4,18 +4,16 @@ import pandas as pd
 from socket import *
 import threading
 import os
-import datetime
-import random
-import time
 
 ACTIONS = ['true', 'false']
 STATE_LIST = ['0']
 ACTION = ''
 ACTION_STR = ''
-CANDIDATE_LIST = []
 STATE = '0'
 NEXT_STATE = '0'
-time_list = []
+PROB_DICT = {}
+CONFLICT = False
+CANDIDATE_DICT = {}
 
 
 class MyThread1(threading.Thread):
@@ -38,12 +36,13 @@ class MyThread2(threading.Thread):
 
     def run(self):
         os.system(
-            "/home/wj/klee/klee_dom/cmake-build-debug/bin/klee -search=jie "
-            "/home/wj/benchmarks/bc/" + sys.argv[1])
+            "time /home/wj/klee/klee_dom/cmake-build-debug/bin/klee -search=jie "
+            "/mnt/hd0/klee_benchmarks/benchmarks/bc/eca-rers2012/Problem03_label27.bc")
 
 
+# sys.argv[1]
 class QLearningTable:
-    def __init__(self, actions, learning_rate=0.01, e_greedy=0.8, alpha=0.1):
+    def __init__(self, actions, learning_rate=0.01, e_greedy=0.65, alpha=0.1):
         self.actions = actions
         self.lr = learning_rate
         self.epsilon = e_greedy
@@ -51,10 +50,20 @@ class QLearningTable:
         self.q_table = pd.DataFrame(np.zeros((1, len(ACTIONS))), columns=self.actions, dtype=np.float64, index=['0'])
 
     def choose_action(self):
+        global PROB_DICT, STATE
         self.check_state_exist(STATE)
         state_actions = self.q_table.loc[STATE, :]
+        str = np.random.choice(state_actions[state_actions == np.max(state_actions)].index)
+        if str is 'true':
+            PROB_DICT[STATE[1:] + '1'] = 0.8
+            PROB_DICT[STATE[1:] + '2'] = 0.2
+        else:
+            PROB_DICT[STATE[1:] + '1'] = 0.2
+            PROB_DICT[STATE[1:] + '2'] = 0.8
+
         if np.random.uniform() < self.epsilon:
-            action_name = np.random.choice(state_actions[state_actions == np.max(state_actions)].index)
+            action_name = str
+            # print("---------",np.max(state_actions))
         else:
             action_name = np.random.choice(self.actions)
         return action_name
@@ -91,7 +100,7 @@ class QLearningTable:
 def init_socket(Socket_TCP):
     global conn, addr
     host = ""
-    port = 45288
+    port = 46666
     addr = (host, port)
     Socket_TCP.bind(addr)
     Socket_TCP.listen(10)
@@ -102,15 +111,11 @@ def init_socket(Socket_TCP):
     thread1.join()
     conn, addr = thread1.get_result()
     # conn, addr = Socket_TCP.accept()
-    print("connect success")
+    # print("connect success")
 
 
 def by_klee():
-    time1 = time.time()
     data = conn.recv(1000)
-    time2 = time.time()
-    time_list.append(time2 - time1)
-
     dataset = ""
     for i in str(data):
         if i != '\\':
@@ -121,17 +126,18 @@ def by_klee():
     return message
 
 
-# def check_if_valid():
-#     global ACTION_STR, CANDIDATE_LIST
-#     str = '0' + ACTION_STR
-#     if str in STATE_LIST:
-#         return True
-#     else:
-#         if str[1:] in CANDIDATE_LIST:
-#             return False
-#         else:
-#             init()
-#             return True
+def check_if_valid():
+    global ACTION_STR, CANDIDATE_DICT, CONFLICT
+    str = '0' + ACTION_STR
+    if str in STATE_LIST:
+        return True
+    else:
+        if str[1:] in CANDIDATE_DICT.keys():
+            del CANDIDATE_DICT[str[1:]]
+            return False
+        else:
+            CONFLICT = True
+            return False
 
 
 def if_in_qtable():
@@ -150,6 +156,44 @@ def init():
     NEXT_STATE = '0'
 
 
+def choose_max_prob():
+    global STATE_LIST, PROB_DICT, CANDIDATE_DICT
+
+    for i in CANDIDATE_DICT.keys():
+        leni = len(i) - 1
+        while leni:
+            PROB_DICT[i] *= PROB_DICT[i[-1]]
+            leni -= 1
+        CANDIDATE_DICT[i] = PROB_DICT[i]
+    # sort
+    print("CANDIDATE_DICT:", CANDIDATE_DICT)
+
+    sort_list = sorted(CANDIDATE_DICT.items(), key=lambda CANDIDATE_DICT: CANDIDATE_DICT[1], reverse=True)
+    return str(sort_list[0][0])
+
+
+def action_after_fail():
+    global ACTION, ACTION_STR, STATE, NEXT_STATE, CONFLICT
+    init()
+    ACTION = RL.choose_action()
+    RL.env_update()
+    CONFLICT = False
+    while check_if_valid():
+        ACTION = RL.choose_action()
+        RL.env_update()
+    if CONFLICT is True:
+        ACTION_STR = choose_max_prob()
+        print("action_str:", ACTION_STR)
+        print(type(ACTION_STR))
+        del CANDIDATE_DICT[ACTION_STR]
+        NEXT_STATE = '0' + ACTION_STR
+    STATE = '0' + ACTION_STR[:-1]
+    # print("action_str:", ACTION_STR)
+    # print("state:", STATE)
+    # print("next_state:", NEXT_STATE)
+    return ACTION_STR
+
+
 if __name__ == "__main__":
     RL = QLearningTable(ACTIONS)
     if_arrive = False
@@ -165,22 +209,14 @@ if __name__ == "__main__":
             while if_in_qtable():
                 ACTION = RL.choose_action()
                 RL.env_update()
-            print("py_send", datetime.datetime.now())
+            print("ACTION_STR", ACTION_STR)
             conn.send(bytes(ACTION_STR, encoding='utf-8'))
 
         elif data == 'fail':
-            init()
-            # ACTION = RL.choose_action()
-            # RL.env_update()
-            # while check_if_valid():
-            #     ACTION = RL.choose_action()
-            #     RL.env_update()
-
-            # CANDIDATE_LIST.sort(key=lambda ele: len(ele), reverse=True)
-            random.shuffle(CANDIDATE_LIST)
-            ACTION_STR = CANDIDATE_LIST[0]
-            NEXT_STATE = '0' + ACTION_STR
-            CANDIDATE_LIST.remove(CANDIDATE_LIST[0])
+            # print(RL.q_table)
+            # print("----------------")
+            ACTION_STR = action_after_fail()
+            print("---ACTION_STR", ACTION_STR)
             conn.send(bytes(ACTION_STR, encoding='utf-8'))
 
         elif data == "reach":
@@ -188,10 +224,6 @@ if __name__ == "__main__":
             conn.close()
             Socket_TCP.close()
             if_arrive = True
-            sum = 0
-            for i in time_list:
-                sum += i
-            print("conn_sum:", sum)
 
         else:
             # reward
@@ -207,6 +239,6 @@ if __name__ == "__main__":
             else:
                 str_temp = '0' + ACTION_STR[:-1] + '1'
             if str_temp not in STATE_LIST:
-                CANDIDATE_LIST.append(str_temp[1:])
+                CANDIDATE_DICT[str_temp[1:]] = 0
             RL.learn(r)
             STATE = NEXT_STATE

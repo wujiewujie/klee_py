@@ -1,31 +1,26 @@
 import os
 import time
+import subprocess
 
-# path = "/home/wj/benchmarks/c/forester-heap"
+# path = "/mnt/hd0/klee_benchmarks/benchmarks/c/ssh"
 # list_dir = os.listdir(path)
-#
-# # transfer the .c to .bc
+
+# transfer the .c to .bc
 # for i in list_dir:
-#     command = "clang-6.0 -I ../../klee/klee_dom/include/ -c -emit-llvm"
+#     command = "clang-6.0 -I ~/klee/klee_dom/include/ -c -emit-llvm /mnt/hd0/klee_benchmarks/benchmarks/c/ssh/"
 #     if i.split(".")[-1] == "c":
-#         print(i)
-#         # print(command)
-# run the .bc
-# path = "/home/wj/benchmarks/bc"
-# list = os.listdir(path)
-# for i in list:
-#     if i.split(".")[-1] == "bc":
 #         # print(i)
-#         command = "time python3  ~/PycharmProjects/klee_py/klee_py/rl_klee_dom.py "+i
-# os.system(command)
-import time
-
-time1 = time.time()
-i = 0
-while True:
-    i += 1
-    if i == 100000000:
-        break
-
-time2 = time.time()
-print(time2-time1)
+#         # print(command)
+#         command = command + i
+#         # print(command)
+#         os.system(command)
+# run the .bc
+path = "/mnt/hd0/klee_benchmarks/benchmarks/bc/ssh"
+list = os.listdir(path)
+for i in list:
+    if i.split(".")[-1] == "bc":
+        print(i, flush=True)
+        # command = "timeout 100 time ~/klee/klee/cmake-build-debug/bin/klee " + i
+        # print(command)
+        # os.system(command)
+        # print("---------", flush=True)
